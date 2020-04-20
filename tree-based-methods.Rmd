@@ -1,0 +1,106 @@
+---
+title: "tree-based-methods"
+author: "Ngoc Duong"
+date: "4/20/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lasso2)
+library(tidyverse)
+library(ISLR)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(party)
+library(partykit)
+library(randomForest)
+library(ranger)
+library(gbm)
+library(plotmo)
+library(pdp)
+library(lime)
+```
+
+
+### Problem 1
+
+```{r}
+data("Prostate") #import data
+```
+
+(i) Fit a regression tree with "lpsa" as the response and the other variables as predictors
+
+```{r}
+set.seed(13)
+tree1 <-rpart(formula = lpsa~., data = Prostate)
+rpart.plot(tree1)
+```
+
+Next, we can use cross-validation to determine the optimal tree.
+
+```{r}
+cpTable <-printcp(tree1)
+plotcp(tree1)
+```
+
+We can prune the tree based on the cp table 
+
+```{r}
+minErr <-which.min(cpTable[,4]) # minimum cross-validation error
+tree3 <-prune(tree1, cp = cpTable[minErr,1])# 1SE rule
+
+tree4 <-prune(tree1, cp = cpTable[cpTable[,4]<cpTable[minErr,4]+cpTable[minErr,5],1][1])
+```
+
+The tree-size corresponding to the lowest cross-validation error is 7 (or 7 splits), compared to 3 splits in the tree obtained by the 1SE rule. 
+
+(ii) Plot the final tree choice, and interpret a terminal node
+
+```{r}
+rpart.plot(tree3)
+```
+
+Let's pick terminal node ...
+
+(iii) Perform bagging and report the variable importance 
+
+```{r}
+set.seed(13)
+bagging <-randomForest(lpsa~., Prostate,mtry = 19)
+
+set.seed(13)
+rf <-randomForest(lpsa~., Prostate,mtry = 6)
+# fast implementation
+
+set.seed(13)
+rf2 <-ranger(lpsa~., Prostate,mtry = 6)
+# scale permutation importance by standard error
+predict(rf, newdata = Hitters2[1:5,])
+```
+
+
+Get variable importance 
+```{r}
+set.seed(13)
+rf2.final.imp <-ranger(Salary~., Hitters,
+                       mtry = 3, 
+                       splitrule = "variance",
+                       min.node.size = 5,
+                       importance = "impurity")
+
+barplot(sort(ranger::importance(rf2.final.imp), decreasing = FALSE),
+        las = 2, 
+        horiz = TRUE, 
+        cex.names = 0.7,
+        col =colorRampPalette(colors =c("darkred","white","darkblue"))(19))
+```
+
+
+
+
+
