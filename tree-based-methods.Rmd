@@ -65,7 +65,7 @@ The tree size corresponding to the lowest cross-validation error is 7 (splits), 
 rpart.plot(tree2)
 ```
 
-Looking at the fifth terminal node from the left, we can interpret it as: the predicted log(prostate specific antigen) is 2.3 for log(cancer volume) between -0.48 and 0.82 and log(prostate weight) more than 3.7. The number of observations satisfying all the above conditions and fall into this category is 10% of the total observations. 
+Looking at the fifth terminal node from the left, we can interpret it as: the predicted log(prostate specific antigen) is 2.3 for log(cancer volume) between -0.48 and 0.82 and log(prostate weight) more than 3.7. The number of observations falling into this branch and have predicted value 2.3 is 10% of the total observations. 
 
 **c. Perform bagging and report the variable importance**
 
@@ -82,7 +82,12 @@ We can look at the lpsa prediction for first 10 subjects in the dataset using mo
 predict(bagging, data = Prostate[1:10,])$predictions
 
 #variable importance
-barplot(sort(ranger::importance(bagging), decreasing = FALSE),
+bagging2 = ranger(lpsa ~ ., data = Prostate, mtry = 8,
+             splitrule = "variance", min.node.size = 5,
+             importance = "permutation",
+             scale.permutation.importance = TRUE)
+
+barplot(sort(ranger::importance(bagging2), decreasing = FALSE),
         las = 2, horiz = TRUE, cex.names = 0.7,
         col = colorRampPalette(colors = c("darkred","white","darkblue"))(8))
 ```
@@ -94,7 +99,10 @@ The variable importance above was computed from permuting out-of-bag data, sugge
 ```{r}
 set.seed(13)
 #fast implementation
-rf <-ranger(lpsa~., Prostate, mtry = 3) #decorrelate by picking mtry = 1/3 mtry in bagging 
+rf = ranger(lpsa ~ ., data = Prostate, mtry = 3, #decorrelate by picking mtry = 1/3 mtry in bagging 
+             splitrule = "variance", min.node.size = 5,
+             importance = "permutation",
+             scale.permutation.importance = TRUE) 
 ```
 
 We can also look at the lpsa prediction for first 10 subjects in the dataset using model obtained from random forest
@@ -104,18 +112,258 @@ We can also look at the lpsa prediction for first 10 subjects in the dataset usi
 predict(rf, data = Prostate[1:10,])$predictions
 
 #importance importance
+rf2 = ranger(lpsa ~ ., data = Prostate, mtry = 3, #decorrelate by picking mtry = 1/3 mtry in bagging 
+             splitrule = "variance", min.node.size = 5,
+             importance = "permutation",
+             scale.permutation.importance = TRUE) 
 
-
+barplot(sort(ranger::importance(rf2), decreasing = FALSE),
+        las = 2, horiz = TRUE, cex.names = 0.7,
+        col = colorRampPalette(colors = c("darkred","white","darkblue"))(8))
 ```
 
+From the variable importance plot, we can see log(cancer volume) and log(prostate weight) have the most influence in the fitted models. The plot also suggests age, log(capsular penetration), and log(benign prostatic hyperplasia amount) carry the least importance in the fitted models. This is similar to the variable importance plot obtained from bagging models above. 
+
+We can also try doing a grid search by caret for Random Forest
+
+```{r}
+ctrl = trainControl(method = "cv")
+
+rf.grid = expand.grid(mtry = 1:8, 
+                      splitrule = "variance",
+                      min.node.size = 2:7)
+
+set.seed(13)
+rf.fit <- train(lpsa~., Prostate,
+                method = "ranger",
+                tuneGrid = rf.grid,
+                trControl = ctrl)
+
+ggplot(rf.fit, highlight = TRUE)
+```
+
+The tuned RF model has the best minimal node size of 3 and the randomly selected predictors mtry of 4. 
 
 **e. Perform boosting and report variable importance**
+
+We first fit a gradient boosting model using Gaussian loss function and 7000 iterations. This model only tunes over B (number of trees/iterations) given we have specified fixed interaction depth (d) and shrinkage ($\lambda$), although the latter two paramaters can also be tuned to select optimal model.
+
+```{r}
+set.seed(13)
+bst <- gbm(lpsa ~., Prostate, 
+           distribution = "gaussian",
+           n.trees = 7000,
+           interaction.depth = 3, 
+           shrinkage = 0.001,
+           cv.folds = 10)
+```
+
+We then plot loss function as a result of number of trees added to the ensemble
+
+```{r}
+nt = gbm.perf(bst, method = "cv")
+```
+
+We can see that after `r nt` trees, the cross-validated error for the RF model increases. So the optimal number of tree is `r nt` for this RF model, given depth = 3, and shrinkage = 0.005.
+
+Obtain variable importance for GBM
 
 ```{r}
 
 ```
 
 
+We next try doing a grid search by caret for Boosting, tuning over all 3 parameters
+
+```{r}
+gbm.grid = expand.grid(n.trees = seq(1000, 5000, 1000),
+                       interaction.depth = 1:10,
+                       shrinkage = c(0.001, 0.003, 0.005),
+                       n.minobsinnode = 1)
+
+set.seed(13)
+gbm.fit = train(lpsa~., Prostate,
+                method = "gbm",
+                tuneGrid = gbm.grid,
+                trControl = ctrl, 
+                verbose = FALSE)
+
+ggplot(gbm.fit, highlight = TRUE)
+
+gbm.fit$finalModel$shrinkage
+gbm.fit$finalModel$interaction.depth
+```
+
 **f. Final choice of model for PSA level prediction**
 
+```{r}
+resamp <- resamples(list(rf = rf.fit, gbm = gbm.fit))
+summary(resamp)
+```
+
+From the table, we can see the model obtained from boosting has slightly lower mean RMSE and slighly higher mean R-squared. However, the 
+In the end, I decide to go with the model obtained from gradient boosting, with trees = 4000, depth = 2, and shrinkage = 0.001. 
+
+### Problem 2
+
+Import data (use data OJ in the ISLR package)
+```{r}
+data("OJ")
+oj_data = OJ %>% janitor::clean_names() %>% 
+  mutate(purchase = as.factor(purchase))
+```
+
+
+**a. Fit a classification tree to dataset**
+```{r}
+set.seed(77)
+rowTrain = createDataPartition(y = oj_data$purchase,
+                               p = 2/3,
+                               list = FALSE)
+
+oj_train <- oj_data[rowTrain,]
+oj_test <- oj_data[-rowTrain,]
+```
+
+Using "rpart"
+
+```{r}
+set.seed(77)
+cl_tree = rpart(formula = purchase~., data = oj_train,
+             control = rpart.control(cp = 0))
+
+cpTable = printcp(cl_tree)
+
+plotcp(cl_tree)
+```
+
+
+Use cross-validation to determine the tree size and create a plot of the final tree. 
+```{r}
+# min CV error
+minErr = which.min(cpTable[,4])
+
+# pruning
+cl_tree1 = prune(cl_tree, cp = cpTable[minErr,1])
+rpart.plot(cl_tree1)
+```
+
+
+Predict the response on the test data and find the test error rate.
+```{r}
+tree_pred <- predict(cl_tree1, oj_test, type = "class")
+head(tree_pred, 10)
+```
+
+The predicted class labels for the first 10 observations in the test data can be observed as above. 
+
+```{r}
+table(tree_pred, oj_test$purchase)
+```
+
+From the confusion matrix, we can calculate the test error rate as: (30+37)/(187+37+30+102) = 0.188.
+
+**Use caret**
+```{r}
+set.seed(77)
+ctrl <-trainControl(method = "repeatedcv",
+                    summaryFunction = twoClassSummary,
+                    classProbs = TRUE)
+
+rpart.fit <-train(purchase~., oj_train,
+                  method = "rpart",
+                  tuneGrid =data.frame(cp =exp(seq(-6,-3, len = 20))),
+                  trControl = ctrl,
+                  metric = "ROC")
+
+ggplot(rpart.fit, highlight = TRUE)
+rpart.plot(rpart.fit$finalModel)
+```
+
+The above classification is tuned by using caret.
+
+
+**b. Perform random forests on the training set and report variable importance. Find test error rate**
+
+```{r}
+set.seed(77)
+rf = ranger(purchase~., data = oj_train,
+            mtry = 6, probability = TRUE)
+
+rf.pred = predict(rf, oj_test, type = "response")$predictions[,1]
+head(rf.pred, 20)
+```
+
+
+We can see the first 20 predictions in the test dataset. Observations with probablity < 0.5 will be classified into "Minute Maid", while with probability > 0.5 will be classified into "Citrus Hill."
+
+
+Obtain variable importance
+```{r}
+set.seed(77)
+rf2.final.per <-ranger(purchase~., oj_train,
+                       mtry = 6,min.node.size = 5,
+                       splitrule = "gini",
+                       importance = "permutation",
+                       scale.permutation.importance = TRUE)
+
+barplot(sort(ranger::importance(rf2.final.per), decreasing = FALSE),
+        las = 2, horiz = TRUE, cex.names = 0.7,col = colorRampPalette(colors =c("cyan","blue"))(8))
+```
+
+We can see loyal_ch (customer brand loyaltyf for Citrus Hill), price_diff (sale price of MM minus sale price of CH), and store ID are the most influential features, whereas percent discount and discount offered for Citrus Hill are the least important in the random forest fitted model. 
+
+```{r}
+rf.pred = ifelse(rf.pred > 0.5, "CH","MM")
+table(rf.pred, oj_test$purchase)
+```
+
+The test error rate can be calculated as (30+43)/(187+43+30+96) = 0.21
+
+**c. Perform boosting and report variable importance. Obtain test error rate**
+
+```{r}
+oj_train$purchase <-as.numeric(oj_train$purchase=="MM")
+oj_test$purchase <-as.numeric(oj_test$purchase=="MM")
+```
+
+```{r}
+set.seed(77)
+bst1 <-gbm(purchase~., oj_train,
+          distribution = "adaboost",
+          n.trees = 3000,interaction.depth = 2,
+          shrinkage = 0.002,cv.folds = 10)
+
+nt1 <-gbm.perf(bst1, method = "cv")
+nt1
+```
+
+The number of optimal trees/iterations picked by gbm function is `r nt1`, which minimizes the error loss given interaction depth = 3 an shrinkage = 0.005.
+
+```{r}
+summary(bst1)
+```
+
+We can observe similar results as in RF model regarding variable importance. "loyal_ch" (customer brand loyaltyf for Citrus Hill), price_diff (sale price of MM minus sale price of CH) are still the two most influential features, whereas percent discount and discount offered for Citrus Hill are still among the least important variables. 
+
+Obtain test error rate
+
+```{r}
+gbm.pred = predict(bst1, newdata = oj_test, type = "response")
+head(gbm.pred, 20)
+```
+
+Similarly, we can see the first 20 predictions in the test dataset. Observations with probablity < 0.5 will be classified into "Minute Maid", while with probability > 0.05 will be classified into "Citrus Hill."
+
+```{r}
+gbm.pred = ifelse(gbm.pred > 0.5, "CH","MM")
+table(gbm.pred, oj_test$purchase)
+```
+
+With CH = 1, MM = 0, the test error rate for this model is (27+37)/(27+190+102+37) = 0.18
+
+**Plots to compare train model by caret**
+```{r}
+
+```
 
