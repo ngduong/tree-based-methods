@@ -1,8 +1,8 @@
 ---
-title: "tree-based-methods"
+title: "Homework 4--Tree based methods"
 author: "Ngoc Duong"
-date: "4/20/2020"
-output: html_document
+date: "4/22/2020"
+output: pdf_document
 editor_options: 
   chunk_output_type: console
 ---
@@ -169,9 +169,10 @@ We can see that after `r nt` trees, the cross-validated error for the RF model i
 Obtain variable importance for GBM
 
 ```{r}
-
+summary(bst)
 ```
 
+From the variable importance matrix and plot we can see log(cancer volume) and log(prostate weight) have the most influence in the fitted models. The plot also suggests age, log(capsular penetration), and gleason carry the least importance in the fitted models. This result is consistent with the result regarding variable importance obtained above. 
 
 We next try doing a grid search by caret for Boosting, tuning over all 3 parameters
 
@@ -261,27 +262,7 @@ The predicted class labels for the first 10 observations in the test data can be
 table(tree_pred, oj_test$purchase)
 ```
 
-From the confusion matrix, we can calculate the test error rate as: (30+37)/(187+37+30+102) = 0.188.
-
-**Use caret**
-```{r}
-set.seed(77)
-ctrl <-trainControl(method = "repeatedcv",
-                    summaryFunction = twoClassSummary,
-                    classProbs = TRUE)
-
-rpart.fit <-train(purchase~., oj_train,
-                  method = "rpart",
-                  tuneGrid =data.frame(cp =exp(seq(-6,-3, len = 20))),
-                  trControl = ctrl,
-                  metric = "ROC")
-
-ggplot(rpart.fit, highlight = TRUE)
-rpart.plot(rpart.fit$finalModel)
-```
-
-The above classification is tuned by using caret.
-
+From the confusion matrix, we can calculate the test error rate as: (30+37)/(187+37+30+102) = 0.19.
 
 **b. Perform random forests on the training set and report variable importance. Find test error rate**
 
@@ -332,7 +313,8 @@ set.seed(77)
 bst1 <-gbm(purchase~., oj_train,
           distribution = "adaboost",
           n.trees = 3000,interaction.depth = 2,
-          shrinkage = 0.002,cv.folds = 10)
+          shrinkage = 0.002,
+          cv.folds = 10)
 
 nt1 <-gbm.perf(bst1, method = "cv")
 nt1
@@ -344,7 +326,7 @@ The number of optimal trees/iterations picked by gbm function is `r nt1`, which 
 summary(bst1)
 ```
 
-We can observe similar results as in RF model regarding variable importance. "loyal_ch" (customer brand loyaltyf for Citrus Hill), price_diff (sale price of MM minus sale price of CH) are still the two most influential features, whereas percent discount and discount offered for Citrus Hill are still among the least important variables. 
+We can observe similar results as in RF model regarding variable importance, e.g., "loyal_ch" (customer brand loyaltyf for Citrus Hill), price_diff (sale price of MM minus sale price of CH) and store id are still the most influential features, whereas percent discount and discount offered for Citrus Hill are still among the least important variables. 
 
 Obtain test error rate
 
@@ -361,9 +343,4 @@ table(gbm.pred, oj_test$purchase)
 ```
 
 With CH = 1, MM = 0, the test error rate for this model is (27+37)/(27+190+102+37) = 0.18
-
-**Plots to compare train model by caret**
-```{r}
-
-```
 
