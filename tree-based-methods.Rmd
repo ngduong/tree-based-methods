@@ -371,3 +371,96 @@ table(gbm.pred, oj_test$purchase)
 
 With CH = 1, MM = 0, the test error rate for this model is (27+37)/(27+190+102+37) = 0.18
 
+
+**Use caret totune all models**
+
+```{r}
+data("OJ")
+oj_data = OJ %>% janitor::clean_names() %>% 
+  mutate(purchase = as.factor(purchase))
+```
+
+```{r}
+set.seed(77)
+rowTrain = createDataPartition(y = oj_data$purchase,
+                               p = 2/3,
+                               list = FALSE)
+
+oj_train <- oj_data[rowTrain,]
+oj_test <- oj_data[-rowTrain,]
+```
+
+Bagging
+```{r}
+ctrl_cl = trainControl(method = "repeatedcv",
+                    summaryFunction = twoClassSummary,
+                    classProbs = TRUE)
+
+cl.bag.tunegrid = expand.grid(mtry = 17, 
+                             splitrule = "gini",
+                             min.node.size = 6:20)
+
+set.seed(77)
+class.bag.fit = train(purchase~.,
+                  data = oj_train,
+                  tuneGrid = cl.bag.tunegrid,
+                  trControl = ctrl_cl,
+                  method = "ranger",
+                  metric = "ROC",
+                  verbose = FALSE)
+
+ggplot(class.bag.fit, highlight = TRUE)
+summary(class.bag.fit$finalModel, las = 2, cBars = 8, cex.names = 0.6)
+```
+
+Random forest 
+```{r}
+cl.rf.tunegrid = expand.grid(mtry = 3:12, 
+                             splitrule = "gini",
+                             min.node.size = 2:7)
+
+set.seed(77)
+class.rf.fit = train(purchase~.,
+                  data = oj_train,
+                  tuneGrid = cl.rf.tunegrid,
+                  trControl = ctrl_cl,
+                  method = "ranger",
+                  metric = "ROC",
+                  verbose = FALSE)
+
+ggplot(class.rf.fit, highlight = TRUE)
+summary(class.rf.fit$finalModel, las = 2, cBars = 8, cex.names = 0.6)
+```
+
+Gradient boosting 
+
+```{r}
+cl.gbm.tunegrid = expand.grid(n.trees = 3000,
+                        interaction.depth = 1:6,
+                        shrinkage = 0.001,
+                        n.minobsinnode = 1)
+
+set.seed(77)
+# Binomial loss function
+class.gbm.fit = train(purchase~.,
+                  data = oj_train,
+                  tuneGrid = cl.gbm.tunegrid,
+                  trControl = ctrl_cl,
+                  method = "gbm",
+                  distribution = "bernoulli",
+                  metric = "ROC",
+                  verbose = FALSE)
+ggplot(class.gbm.fit, highlight = TRUE)
+
+summary(class.gbm.fit$finalModel, las = 2, cBars = 8, cex.names = 0.6)
+```
+
+Resampling
+
+```{r}
+cl_resample = resamples(list(bagging = class.bag.fit, rf = class.rf.fit, gbm = class.gbm.fit))
+summary(cl_resample)
+bwplot(cl_resample, metrics = "RMSE")
+```
+
+We can see that all three models perform consistently well and are very comparable. However, the tunded GBM model seems to have the highest median AUC (at 0.898) and specificity. This comes with a trade-off of lower specificity. 
