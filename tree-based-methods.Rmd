@@ -71,21 +71,24 @@ Looking at the fifth terminal node from the left, we can interpret it as: the pr
 
 ```{r}
 set.seed(13)
-bagging = ranger(lpsa ~ ., data = Prostate, mtry = 8,
-             splitrule = "variance", min.node.size = 5,
-             importance = "permutation",
-             scale.permutation.importance = TRUE)
+bagging = randomForest(lpsa ~ ., data = Prostate,
+                       mtry = 8)
 ```
 
 We can look at the lpsa prediction for first 10 subjects in the dataset using model obtained from bagging
 ```{r}
-predict(bagging, data = Prostate[1:10,])$predictions
+predict(bagging, data = Prostate)[1:10]
+```
 
+```{r}
 #variable importance
+set.seed(13)
 bagging2 = ranger(lpsa ~ ., data = Prostate, mtry = 8,
              splitrule = "variance", min.node.size = 5,
              importance = "permutation",
              scale.permutation.importance = TRUE)
+
+ranger::importance(bagging2)
 
 barplot(sort(ranger::importance(bagging2), decreasing = FALSE),
         las = 2, horiz = TRUE, cex.names = 0.7,
@@ -94,28 +97,48 @@ barplot(sort(ranger::importance(bagging2), decreasing = FALSE),
 
 The variable importance above was computed from permuting out-of-bag data, suggesting log(cancer volume) and log(prostate weight) have the most influence in the fitted models. This can also be seen from the chosen decision tree in part b. On the other hand, age, log(capsular penetration), and log(benign prostatic hyperplasia amount) carry the least importance in the fitted models.
 
+```{r}
+ctrl = trainControl(method = "cv")
+
+bag.grid = expand.grid(mtry = 8, 
+                      splitrule = "variance",
+                      min.node.size = 2:7)
+
+set.seed(13)
+bag.fit <- train(lpsa~., Prostate,
+                method = "ranger",
+                tuneGrid = bag.grid,
+                trControl = ctrl)
+
+ggplot(bag.fit, highlight = TRUE)
+```
+
+Tuned bagging model has minimal node size of 4.
+
 **d. Perform random forest and report the variable importance**
 
 ```{r}
 set.seed(13)
 #fast implementation
-rf = ranger(lpsa ~ ., data = Prostate, mtry = 3, #decorrelate by picking mtry = 1/3 mtry in bagging 
-             splitrule = "variance", min.node.size = 5,
-             importance = "permutation",
-             scale.permutation.importance = TRUE) 
+rf = randomForest(lpsa ~ ., data = Prostate,
+                       mtry = 3) #set smaller number of subset of trees to decorrelate
 ```
 
 We can also look at the lpsa prediction for first 10 subjects in the dataset using model obtained from random forest
 
 ```{r}
 #prediction
-predict(rf, data = Prostate[1:10,])$predictions
+predict(rf, data = Prostate)[1:10]
+```
 
+```{r}
 #importance importance
 rf2 = ranger(lpsa ~ ., data = Prostate, mtry = 3, #decorrelate by picking mtry = 1/3 mtry in bagging 
              splitrule = "variance", min.node.size = 5,
              importance = "permutation",
              scale.permutation.importance = TRUE) 
+
+ranger::importance(rf2)
 
 barplot(sort(ranger::importance(rf2), decreasing = FALSE),
         las = 2, horiz = TRUE, cex.names = 0.7,
@@ -129,7 +152,7 @@ We can also try doing a grid search by caret for Random Forest
 ```{r}
 ctrl = trainControl(method = "cv")
 
-rf.grid = expand.grid(mtry = 1:8, 
+rf.grid = expand.grid(mtry = 1:7, 
                       splitrule = "variance",
                       min.node.size = 2:7)
 
@@ -142,7 +165,7 @@ rf.fit <- train(lpsa~., Prostate,
 ggplot(rf.fit, highlight = TRUE)
 ```
 
-The tuned RF model has the best minimal node size of 3 and the randomly selected predictors mtry of 4. 
+The tuned RF model has the best minimal node size of 7 and the number of randomly selected predictors mtry of 4. 
 
 **e. Perform boosting and report variable importance**
 
@@ -177,8 +200,8 @@ From the variable importance matrix and plot we can see log(cancer volume) and l
 We next try doing a grid search by caret for Boosting, tuning over all 3 parameters
 
 ```{r}
-gbm.grid = expand.grid(n.trees = seq(1000, 5000, 1000),
-                       interaction.depth = 1:10,
+gbm.grid = expand.grid(n.trees = seq(2000, 5000, 1000),
+                       interaction.depth = 1:5,
                        shrinkage = c(0.001, 0.003, 0.005),
                        n.minobsinnode = 1)
 
@@ -195,15 +218,19 @@ gbm.fit$finalModel$shrinkage
 gbm.fit$finalModel$interaction.depth
 ```
 
+The gradient boosting model obtained from tuning all three parameters has number of trees selected to be 4000, tree depth = 2, and shrinkage = 0.001.
+
 **f. Final choice of model for PSA level prediction**
 
 ```{r}
-resamp <- resamples(list(rf = rf.fit, gbm = gbm.fit))
+resamp <- resamples(list(bagging = bag.fit, rf = rf.fit, gbm = gbm.fit))
 summary(resamp)
+bwplot(resamp, metric = "RMSE")
 ```
 
-From the table, we can see the model obtained from boosting has slightly lower mean RMSE and slighly higher mean R-squared. However, the 
-In the end, I decide to go with the model obtained from gradient boosting, with trees = 4000, depth = 2, and shrinkage = 0.001. 
+From the table, we can see the model obtained from gradient boosting has slightly lower mean RMSE and slighly higher mean R-squared than the other two models. However, it has lower median RMSE (and median R-squared) as seen from the plot.
+
+In the end, I decide to go with the RF model because although its performance is consistent (both low median and mean RMSE and high mean and median R-squared). Gradient boosting model might give better results but will require more effort and computational power to tune the three parameters. In this case, my tuned GBM did not outperform the RF model. 
 
 ### Problem 2
 
